@@ -179,12 +179,10 @@ s3://<nome-do-bucket>/raw/vendas/vendas_2026.csv
 1. Abra o **AWS Glue DataBrew**.
 2. Acesse **Datasets → Connect new dataset**.
 3. Configure:
-   - **Dataset name:** `ds_lab7_vendas_raw`
+   - **Dataset name:** `ds-lab7-vendas-raw`
    - **Source:** Amazon S3
    - **S3 location:** `s3://<nome-do-bucket>/raw/vendas/vendas_2026.csv`
 4. Salve o dataset e execute a perfilagem dos dados (*Run data profile*).
-
-Substitua `<nome-do-bucket>` pelo valor obtido no CloudFormation.
 
 ### Criar o projeto
 
@@ -312,8 +310,57 @@ O esquema externo e o ambiente Redshift precisariam estar previamente configurad
 
 Ao terminar o laboratório:
 
+### Limpeza de todos serviços utilizados (⚠️Atenção: Irá excluir todos os CloudFormations, Glue, DataBrew criados na sua AWS)
+
+``` bash
+echo "=== 1. Apagando todos os recursos do AWS DataBrew ==="
+for job in $(aws databrew list-jobs --query "Jobs[].Name" --output text 2>/dev/null); do
+    aws databrew delete-job --name "$job" 2>/dev/null
+done
+for proj in $(aws databrew list-projects --query "Projects[].Name" --output text 2>/dev/null); do
+    aws databrew delete-project --name "$proj" 2>/dev/null
+done
+for ds in $(aws databrew list-datasets --query "Datasets[].Name" --output text 2>/dev/null); do
+    aws databrew delete-dataset --name "$ds" 2>/dev/null
+done
+
+echo "=== 2. Apagando todos os Crawlers do AWS Glue ==="
+for crawler in $(aws glue get-crawlers --query "Crawlers[].Name" --output text 2>/dev/null); do
+    aws glue delete-crawler --name "$crawler" 2>/dev/null
+done
+
+echo "=== 3. Esvaziando e deletando Buckets S3 do Lab ==="
+BUCKETS=$(aws s3api list-buckets --query "Buckets[?contains(Name, 'datalake') || contains(Name, 'lab')].Name" --output text)
+for b in $BUCKETS; do
+    if [ "$b" != "None" ] && [ -n "$b" ]; then
+        echo "Esvaziando s3://$b..."
+        aws s3 rm "s3://$b" --recursive
+        aws s3api delete-bucket --bucket "$b" 2>/dev/null || true
+    fi
+done
+
+echo "=== 4. Deletando Databases residuais no Glue Catalog ==="
+for db in $(aws glue get-databases --query "DatabaseList[].Name" --output text 2>/dev/null); do
+    if [[ "$db" == *"lab"* || "$db" == *"datalake"* ]]; then
+        aws glue delete-database --name "$db" 2>/dev/null || true
+    fi
+done
+
+echo "=== 5. Deletando Stacks do CloudFormation ==="
+for stack in $(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[].StackName" --output text 2>/dev/null); do
+    if [[ "$stack" == *"datalake"* || "$stack" == *"lab"* ]]; then
+        echo "Deletando stack $stack..."
+        aws cloudformation delete-stack --stack-name "$stack"
+    fi
+done
+
+echo "=== LIMPEZA COMPLETA FINALIZADA COM SUCESSO! ==="
+```
+``` bash
+rm -rf template.yaml vendas_2026.csv
+```
+### Limpeza Manual:
+
 1. No Amazon S3, abra o bucket e utilize **Empty** para remover os arquivos de `raw/`, `curated/` e `athena-results/`.
 2. No CloudFormation, selecione a stack `datalake-lab7` e clique em **Delete**.
-3. Caso tenha criado outros recursos durante os testes, remova-os também.
-
-A stack não poderá excluir o bucket enquanto ele contiver objetos. Esvazie-o antes de excluir a stack.
+3. Remova os Datasets e Projects do DataBrew, e o Crawlers do Glue.
