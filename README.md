@@ -1,10 +1,11 @@
-# 🚀 Laboratório Prático: Data Lake \& Analytics na AWS — Lab 7
+
+# 🚀 Laboratório Prático: Data Lake & Analytics na AWS — Lab 7
 
 Este laboratório demonstra o fluxo de ingestão, limpeza, catalogação e análise de dados utilizando serviços da AWS.
 
 ## 🏗️ Arquitetura
 
-``` text
+```text
 [CSV criado no AWS CloudShell]
              |
              v
@@ -34,6 +35,7 @@ Este laboratório demonstra o fluxo de ingestão, limpeza, catalogação e anál
 - AWS CloudShell disponível e autorizado.
 - Permissões para utilizar CloudFormation, S3, Glue, DataBrew e Athena.
 - Role `LabRole` disponível para os serviços que precisarem de uma role de execução.
+- Utilize a mesma região AWS durante todo o laboratório.
 
 > **Atenção aos custos:** utilize apenas os recursos necessários, acompanhe as cobranças e exclua os recursos ao terminar. Não crie clusters EMR nem ambientes Redshift neste laboratório.
 
@@ -45,7 +47,7 @@ Abra o **AWS CloudShell** pelo console da AWS. Os comandos desta etapa criarão 
 
 Execute o comando completo:
 
-``` bash
+```bash
 cat > template.yaml << 'EOF'
 AWSTemplateFormatVersion: '2010-09-09'
 
@@ -80,11 +82,11 @@ Outputs:
 EOF
 ```
 
-### Criar o vendas\_2026.csv
+### Criar o vendas_2026.csv
 
 Execute:
 
-``` bash
+```bash
 cat > vendas_2026.csv << 'EOF'
 id_venda,data_venda,cliente,valor,categoria
 1001,2026-01-15,José Santana,250.00,Eletronicos
@@ -96,9 +98,9 @@ id_venda,data_venda,cliente,valor,categoria
 EOF
 ```
 
-Os arquivos estão prontos. Se quiser conferir, execute:
+Confira se os arquivos foram criados:
 
-``` bash
+```bash
 ls -l template.yaml vendas_2026.csv
 ```
 
@@ -110,7 +112,7 @@ O CloudFormation criará o bucket S3 e o banco de dados do Glue Catalog. Não se
 
 No CloudShell, execute:
 
-``` bash
+```bash
 aws cloudformation create-stack \
   --stack-name datalake-lab7 \
   --template-body file://template.yaml
@@ -118,14 +120,16 @@ aws cloudformation create-stack \
 
 Aguarde a conclusão:
 
-``` bash
+```bash
 aws cloudformation wait stack-create-complete \
   --stack-name datalake-lab7
 ```
 
+Se o comando falhar, consulte **CloudFormation → Stacks → datalake-lab7 → Events** antes de prosseguir.
+
 Consulte os outputs:
 
-``` bash
+```bash
 aws cloudformation describe-stacks \
   --stack-name datalake-lab7 \
   --query "Stacks[0].Outputs" \
@@ -136,7 +140,7 @@ aws cloudformation describe-stacks \
 
 Execute:
 
-``` bash
+```bash
 BUCKET=$(aws cloudformation describe-stacks \
   --stack-name datalake-lab7 \
   --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue | [0]" \
@@ -153,7 +157,7 @@ A variável `BUCKET` armazenará o nome do bucket para os próximos comandos na 
 
 Envie o CSV diretamente do CloudShell:
 
-``` bash
+```bash
 aws s3 cp vendas_2026.csv \
   "s3://$BUCKET/raw/vendas/vendas_2026.csv"
 ```
@@ -162,85 +166,108 @@ O AWS CLI criará os prefixos necessários durante o envio.
 
 Para conferir:
 
-``` bash
+```bash
 aws s3 ls "s3://$BUCKET/raw/vendas/"
 ```
 
 O arquivo estará disponível em:
 
-``` text
+```text
 s3://<nome-do-bucket>/raw/vendas/vendas_2026.csv
 ```
+
+Substitua `<nome-do-bucket>` pelo nome exibido pelo comando `echo "$BUCKET"` nos campos do console AWS.
 
 ## 🧹 5. Limpeza com AWS Glue DataBrew
 
 ### Criar o dataset
 
-1. Abra o **AWS Glue DataBrew**.
+1. Abra o **AWS Glue DataBrew** na mesma região utilizada anteriormente.
 2. Acesse **Datasets → Connect new dataset**.
 3. Configure:
    - **Dataset name:** `ds-lab7-vendas-raw`
    - **Source:** Amazon S3
    - **S3 location:** `s3://<nome-do-bucket>/raw/vendas/vendas_2026.csv`
-4. Salve o dataset e execute a perfilagem dos dados (*Run data profile*).
+4. Substitua `<nome-do-bucket>` pelo nome real do bucket.
+5. Salve o dataset e, se necessário, execute a perfilagem dos dados (*Run data profile*).
 
 ### Criar o projeto
 
 1. Acesse **Projects → Create project**.
 2. Configure:
    - **Project name:** `proj-lab7-limpeza-vendas`
-   - **Dataset:** `ds_lab7_vendas_raw`
+   - **Dataset:** `ds-lab7-vendas-raw`
+   - **Recipe:** crie uma nova receita, caso solicitado.
    - **Role:** `LabRole`
-3. Na interface visual, aplique as transformações:
+3. Crie o projeto e aguarde a abertura do editor visual.
+4. Na receita, aplique as transformações:
    - Remova registros com `valor` ausente.
    - Remova registros com `data_venda` ausente.
-   - Padronize as datas para `YYYY-MM-DD`, tratando o formato `2026/01/17`.
+   - Converta `data_venda` para data, tratando o formato `2026/01/17`.
+   - Padronize as datas para `YYYY-MM-DD`.
+5. Salve as transformações na receita.
 
-### Criar o job
+> Os nomes das opções de transformação podem variar na interface. Confirme que o valor e a data estão sendo interpretados corretamente antes de executar o job.
 
-Crie um job a partir da receita:
+### Criar e executar o job
+
+1. Publique a receita, caso ainda não esteja publicada.
+2. No projeto, acesse a opção de criação de job (*Create job*).
+3. Configure:
 
 | Campo | Valor |
 | --- | --- |
 | Job name | `job-lab7-clean-vendas` |
+| Dataset | `ds-lab7-vendas-raw` |
 | Output format | Parquet |
 | Output location | `s3://<nome-do-bucket>/curated/vendas/` |
+| IAM role | `LabRole` |
 
-Publique a receita, se solicitado, e execute o job.
-
-Aguarde a conclusão do job antes de prosseguir.
+4. Substitua `<nome-do-bucket>` pelo nome real do bucket.
+5. Salve e execute o job (*Create and run job* ou a opção equivalente).
+6. Aguarde o status **Succeeded** antes de prosseguir.
 
 ## 🗂️ 6. Catalogação com AWS Glue Crawler
 
+Antes de criar o crawler, confirme que o banco `db_lab7` existe em **AWS Glue → Data Catalog → Databases**.
+
 1. Abra **AWS Glue → Crawlers**.
-2. Crie um crawler chamado `crawler-lab7-vendas-curated`.
-3. Configure:
+2. Clique em **Create crawler**.
+3. Informe o nome `crawler-lab7-vendas-curated`.
+4. Configure:
    - **Data source:** Amazon S3
    - **S3 path:** `s3://<nome-do-bucket>/curated/vendas/`
    - **IAM role:** `LabRole`, se disponível e autorizada.
    - **Target database:** `db_lab7`
-4. Conclua a criação e execute o crawler.
-5. Após a execução, acesse **Data Catalog → Tables** e localize a tabela criada.
+5. Substitua `<nome-do-bucket>` pelo nome real do bucket.
+6. Conclua a criação e execute o crawler.
+7. Aguarde a conclusão e acesse **Data Catalog → Tables**.
+8. Localize a tabela criada e anote seu nome efetivo.
 
-Anote o nome efetivo da tabela. Nos exemplos seguintes, será utilizado `vendas`; caso o crawler tenha registrado outro nome, substitua-o nas consultas.
+Nos exemplos seguintes, será utilizado `vendas`. Caso o crawler tenha registrado outro nome, substitua-o nas consultas.
 
 ## 📊 7. Consultas com Amazon Athena
 
 ### Configurar o local de resultados
 
-1. Abra o **Amazon Athena**.
-2. Acesse as configurações do editor (*Settings*).
-3. Configure o local de saída:
+1. Abra o **Amazon Athena** na mesma região.
+2. Acesse **Settings → Manage** no editor de consultas.
+3. Em **Location of query result**, informe:
 
-``` text
+```text
 s3://<nome-do-bucket>/athena-results/
 ```
 
-4. Selecione o banco de dados `db_lab7`.
+4. Substitua `<nome-do-bucket>` pelo nome real do bucket.
+5. Salve a configuração, se disponível. Se o workgroup impuser outro local de resultados, utilize a configuração permitida pelo ambiente.
+6. Volte ao editor e selecione o banco de dados `db_lab7`.
+7. Confirme o nome da tabela no painel de dados.
 
 ### Consulta por categoria
 
-``` sql
+Cole a consulta no editor e clique em **Run**:
+
+```sql
 SELECT
     categoria,
     COUNT(id_venda) AS qtd_vendas,
@@ -254,31 +281,33 @@ ORDER BY faturamento_total DESC;
 
 **Quantidade de registros:**
 
-``` sql
+```sql
 SELECT COUNT(*) AS total_registros
 FROM "db_lab7"."vendas";
 ```
 
 **Faturamento total:**
 
-``` sql
+```sql
 SELECT ROUND(SUM(valor), 2) AS faturamento_total
 FROM "db_lab7"."vendas";
 ```
+
+Execute uma consulta por vez. Se a tabela tiver outro nome, substitua `vendas` nas consultas.
 
 Considerando as transformações propostas, o conjunto deverá conter quatro registros, com faturamento total de `910.40`.
 
 ## 🔬 8. Cenários opcionais: EMR e Redshift Spectrum
 
-Esta etapa é apenas conceitual. **Não crie clusters, workgroups ou outros recursos pagos para executá-la.**
+Esta etapa é apenas conceitual. **Não crie clusters EMR, workgroups adicionais ou ambientes Redshift para executá-la.**
 
 ### Amazon EMR — Processamento distribuído
 
 O Amazon EMR permite executar frameworks como Apache Spark para processar grandes volumes de dados.
 
-Exemplo de operação que poderia ser realizada em um ambiente Spark:
+Exemplo de operação que poderia ser realizada em um ambiente Spark previamente configurado:
 
-``` python
+```python
 df = spark.sql("""
     SELECT *
     FROM db_lab7.vendas
@@ -294,7 +323,7 @@ O Redshift Spectrum permite consultar dados armazenados no S3 utilizando tabelas
 
 Exemplo conceitual de consulta:
 
-``` sql
+```sql
 SELECT
     categoria,
     SUM(valor) AS faturamento_total
@@ -302,65 +331,18 @@ FROM redshift_lab7.vendas
 GROUP BY categoria;
 ```
 
-O esquema externo e o ambiente Redshift precisariam estar previamente configurados.
+O esquema externo, as permissões e o ambiente Redshift precisariam estar previamente configurados.
 
 **Observação:** para este laboratório, o Athena já atende à necessidade de executar consultas SQL diretamente sobre os dados no S3. EMR e Redshift Spectrum representam alternativas para cenários com requisitos adicionais de processamento e data warehouse.
 
 ## 🧹 9. Limpeza dos recursos
 
-Ao terminar o laboratório:
+Ao terminar o laboratório, remova somente os recursos criados para o Lab 7.
 
-### Limpeza de todos serviços utilizados (⚠️Atenção: Irá excluir todos os CloudFormations, Glue, DataBrew criados na sua AWS)
+### Limpeza manual
 
-``` bash
-echo "=== 1. Apagando todos os recursos do AWS DataBrew ==="
-for job in $(aws databrew list-jobs --query "Jobs[].Name" --output text 2>/dev/null); do
-    aws databrew delete-job --name "$job" 2>/dev/null
-done
-for proj in $(aws databrew list-projects --query "Projects[].Name" --output text 2>/dev/null); do
-    aws databrew delete-project --name "$proj" 2>/dev/null
-done
-for ds in $(aws databrew list-datasets --query "Datasets[].Name" --output text 2>/dev/null); do
-    aws databrew delete-dataset --name "$ds" 2>/dev/null
-done
-
-echo "=== 2. Apagando todos os Crawlers do AWS Glue ==="
-for crawler in $(aws glue get-crawlers --query "Crawlers[].Name" --output text 2>/dev/null); do
-    aws glue delete-crawler --name "$crawler" 2>/dev/null
-done
-
-echo "=== 3. Esvaziando e deletando Buckets S3 do Lab ==="
-BUCKETS=$(aws s3api list-buckets --query "Buckets[?contains(Name, 'datalake') || contains(Name, 'lab')].Name" --output text)
-for b in $BUCKETS; do
-    if [ "$b" != "None" ] && [ -n "$b" ]; then
-        echo "Esvaziando s3://$b..."
-        aws s3 rm "s3://$b" --recursive
-        aws s3api delete-bucket --bucket "$b" 2>/dev/null || true
-    fi
-done
-
-echo "=== 4. Deletando Databases residuais no Glue Catalog ==="
-for db in $(aws glue get-databases --query "DatabaseList[].Name" --output text 2>/dev/null); do
-    if [[ "$db" == *"lab"* || "$db" == *"datalake"* ]]; then
-        aws glue delete-database --name "$db" 2>/dev/null || true
-    fi
-done
-
-echo "=== 5. Deletando Stacks do CloudFormation ==="
-for stack in $(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[].StackName" --output text 2>/dev/null); do
-    if [[ "$stack" == *"datalake"* || "$stack" == *"lab"* ]]; then
-        echo "Deletando stack $stack..."
-        aws cloudformation delete-stack --stack-name "$stack"
-    fi
-done
-
-echo "=== LIMPEZA COMPLETA FINALIZADA COM SUCESSO! ==="
-```
-``` bash
-rm -rf template.yaml vendas_2026.csv
-```
-### Limpeza Manual:
-
-1. No Amazon S3, abra o bucket e utilize **Empty** para remover os arquivos de `raw/`, `curated/` e `athena-results/`.
-2. No CloudFormation, selecione a stack `datalake-lab7` e clique em **Delete**.
-3. Remova os Datasets e Projects do DataBrew, e o Crawlers do Glue.
+1. **DataBrew:** exclua o job `job-lab7-clean-vendas`, o projeto `proj-lab7-limpeza-vendas` e o dataset `ds-lab7-vendas-raw`. Confirme que o job não está em execução.
+2. **Glue Crawler:** em **AWS Glue → Crawlers**, exclua `crawler-lab7-vendas-curated`.
+3. **Glue Data Catalog:** se a tabela `vendas` tiver sido criada pelo crawler, exclua somente essa tabela, caso ainda exista.
+4. **Amazon S3:** abra exclusivamente o bucket cujo nome foi exibido pelo output `BucketName` da stack `datalake-lab7`. Confira o nome antes de prosseguir e utilize **Empty** para remover os arquivos do laboratório.
+5. **CloudFormation:** acesse **Stacks**, selecione `datalake-lab7` e clique em **Delete**. Aguarde a conclusão da exclusão.
